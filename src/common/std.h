@@ -15,4 +15,9 @@ static inline void nullify_ptr(void **ptr) {
     *ptr = NULL;
 }
 
+static inline bool always_valid(void *const *ptr) {
+    (void)ptr;
+    return true;
+}
+
 #endif //STD_H

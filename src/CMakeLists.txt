@@ -10,7 +10,6 @@ add_executable(os_lab3 main.c
         common/os/thread_pool.h
         common/raii.h
         common/unlikely.h
-        common/os/posix/threads.c
         common/os/posix/threads.h
         common/std.h
         common/std.h

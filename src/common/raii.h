@@ -5,7 +5,7 @@
 
 #if defined(__clang__) || defined(__GNUC__)
 
-#define DEFINE_RAII_TYPE(TypeName, BaseType, CleanupFunc, IsValidFunc, ResetFunc, ConstructorFunc, CloneFunc) \
+#define DEFINE_RAII_TYPE(TypeName, BaseType, ConstructorFunc, CloneFunc, CleanupFunc, IsValidFunc, ResetFunc) \
     typedef BaseType TypeName;\
     static inline void __##TypeName##_cleanup(TypeName *ptr) { \
         if (unlikely(!ptr)) return; \
@@ -26,7 +26,8 @@
         return val; \
     } \
     \
-    static inline __attribute__((unused)) typeof(ConstructorFunc)* __##TypeName##_get_constructor() { \
+    static inline typeof(ConstructorFunc)* __##TypeName##_get_constructor() { \
+        _Static_assert((void*) (ConstructorFunc) != NULL, "Constructor is not implemented for " #TypeName); \
         return ConstructorFunc; \
     } \
     static inline TypeName __##TypeName##_clone(const TypeName *ptr) { \
