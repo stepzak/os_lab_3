@@ -60,17 +60,27 @@
  * so its automatic cleanup is always safe.
  */
 #define DEFINE_RAII_CLONE(TypeName, CloneFunc) \
-    static inline typeof(CloneFunc) * \
+    static inline __typeof__(CloneFunc) * \
     RAII_DETAIL_SYMBOL(TypeName, _get_clone)(void) { \
         return CloneFunc; \
     }
 
 #define DEFINE_RAII_INIT(BaseName, InitFunc) \
-    static inline typeof(InitFunc) *RAII_DETAIL_SYMBOL(BaseName, _get_init)(void) { \
+    static inline __typeof__(InitFunc) *RAII_DETAIL_SYMBOL(BaseName, _get_init)(void) { \
         return InitFunc; \
-    }
+    } \
 
-#define DECLARE_SHARED_RAII_TYPES(BaseName, BaseType, InitFunc, DestroyFunc, ValidFunc, ResetFunc) \
+#define DEFINE_RAII_INIT_VALIDATION(BaseName, IsInitSuccessFunc) \
+    static inline __typeof__(IsInitSuccessFunc) *RAII_DETAIL_SYMBOL(BaseName, _get_init_valid)(void) { \
+        return IsInitSuccessFunc; \
+    } \
+
+#define init_succeeded(BaseName, result) (RAII_DETAIL_SYMBOL(BaseName, _get_init_valid)())(result)
+
+#define init_failed(BaseName, result) !init_succeeded(BaseName, result)
+
+#define DECLARE_SHARED_RAII_TYPES(BaseName, BaseType, \
+    InitFunc, DestroyFunc, ValidFunc, ResetFunc) \
     DEFINE_RAII_TYPE(RAII_STACK_TYPE(BaseName), BaseType, DestroyFunc, ValidFunc, ResetFunc) \
     \
     DEFINE_RAII_INIT(BaseName, InitFunc) \
@@ -133,7 +143,6 @@
     (RAII_DETAIL_SYMBOL(BaseName, _get_init)())(*(RAII_HEAP_TYPE(BaseName)*)&(var), ##__VA_ARGS__) \
 )
 
-
 #define drop(TypeName, var) RAII_DETAIL_SYMBOL(TypeName, _cleanup)(&(var))
 #define drop_stack(BaseName, var) drop(RAII_STACK_TYPE(BaseName), var)
 #define drop_heap(BaseName, var) drop(RAII_HEAP_TYPE(BaseName), var)
@@ -141,6 +150,31 @@
 #define move(TypeName, var) RAII_DETAIL_SYMBOL(TypeName, _take)(&(var))
 #define move_stack(BaseName, var) move(RAII_STACK_TYPE(BaseName), var)
 #define move_heap(BaseName, var) move(RAII_HEAP_TYPE(BaseName), var)
+
+/* ONLY FOR TRIVIAL MOVE. DO NOT USE WITH NON-TRIVIAL OR NON-MOVEABLE OBJECTS(e.g. Mutex) */
+#define new_stack(BaseName, init_result_ptr, ...) \
+({ \
+    RAII_STACK_TYPE(BaseName) raii_new_value = create_stack(BaseName); \
+    __auto_type raii_new_result = \
+    init(BaseName, raii_new_value, ##__VA_ARGS__); \
+    *(init_result_ptr) = raii_new_result; \
+    if (init_failed(BaseName, raii_new_result)) { \
+        drop_stack(BaseName, raii_new_value); \
+    } \
+    move_stack(BaseName, raii_new_value); \
+})
+
+#define new_heap(BaseName, init_result_ptr, ...) \
+({ \
+    RAII_HEAP_TYPE(BaseName) raii_new_value = create_heap(BaseName); \
+    __auto_type raii_new_result = \
+    init(BaseName, raii_new_value, ##__VA_ARGS__); \
+    *(init_result_ptr) = raii_new_result; \
+    if (init_failed(BaseName, raii_new_result)) { \
+    drop_heap(BaseName, raii_new_value); \
+    } \
+    move_heap(BaseName, raii_new_value); \
+})
 
 #define move_assign(TypeName, destination, source) \
     RAII_DETAIL_SYMBOL(TypeName, _move_assign)(&(destination), &(source))
