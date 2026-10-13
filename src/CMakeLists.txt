@@ -12,7 +12,8 @@ add_executable(os_lab3 main.c
         common/unlikely.h
         common/os/posix/threads.h
         common/std.h
-        common/std.h
-        common/os/posix/mutex.h)
+        common/os/posix/mutex.h
+        matrix.h
+        matrix.c)
 
 target_link_libraries(os_lab3 PRIVATE Threads::Threads)
