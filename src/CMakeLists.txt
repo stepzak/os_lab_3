@@ -8,12 +8,21 @@ find_package(Threads REQUIRED)
 
 add_executable(os_lab3 main.c
         common/os/thread_pool.h
+        common/os/thread_pool.c
         common/raii.h
         common/unlikely.h
         common/os/posix/threads.h
         common/std.h
         common/os/posix/mutex.h
         matrix.h
-        matrix.c)
+        matrix.c
+        input.h
+        input.c
+        convolution.c
+        convolution.h)
+
+target_include_directories(os_lab3 PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 target_link_libraries(os_lab3 PRIVATE Threads::Threads)

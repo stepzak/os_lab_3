@@ -1,98 +1,126 @@
 #ifndef MUTEX_H
 #define MUTEX_H
 
+#include <assert.h>
+#include <errno.h>
 #include <pthread.h>
-#include <stdlib.h>
-#include <string.h>
 #include <stdbool.h>
 
-#include "../../std.h"
+#include "common/raii.h"
 
-static inline bool stack_mutex_valid(pthread_mutex_t *mutex) {
-    if (unlikely(!mutex)) return false;
-    
-    static const pthread_mutex_t zero_mutex = {0}; 
-    return memcmp(mutex, &zero_mutex, sizeof(pthread_mutex_t)) != 0;
+typedef struct {
+    pthread_mutex_t native;
+    bool initialized;
+} mutex_t;
+
+static void mutex_reset(mutex_t *mutex) {
+    if (mutex == NULL) return;
+    mutex->initialized = false;
 }
 
-static inline bool mutex_valid(pthread_mutex_t **mutex) {
-    if (unlikely(!mutex || !*mutex)) return false;
-    return stack_mutex_valid(*mutex);
+static bool mutex_is_valid(const mutex_t *mutex) {
+    return mutex != NULL && mutex->initialized;
 }
 
-static inline void stack_mutex_destroy(pthread_mutex_t *mutex) {
-    if (unlikely(!mutex)) return;
-    pthread_mutex_destroy(mutex);
+static int mutex_init(mutex_t *mutex) {
+    if (mutex == NULL) return EINVAL;
+    if (mutex_is_valid(mutex)) return EBUSY;
+
+    const int error = pthread_mutex_init(&mutex->native, NULL);
+    if (error == 0) mutex->initialized = true;
+    return error;
 }
 
-static inline void stack_mutex_reset(pthread_mutex_t *mutex) {
-    if (unlikely(!mutex)) return;
+static void mutex_destroy(mutex_t *mutex) {
+    if (!mutex_is_valid(mutex)) return;
 
-    if (unlikely(pthread_mutex_destroy(mutex) != 0)) return;
-
-    
-    if (unlikely(pthread_mutex_init(mutex, NULL) != 0)) {
-        memset(mutex, 0, sizeof(pthread_mutex_t));
-    }
+    const int error = pthread_mutex_destroy(&mutex->native);
+    assert(error == 0);
+    (void)error;
+    mutex->initialized = false;
 }
 
-DEFINE_RAII_TYPE(stack_mutex, pthread_mutex_t, NULL, NULL, stack_mutex_destroy, stack_mutex_valid, stack_mutex_reset)
-
-static inline pthread_mutex_t* mutex_create(void) {
-    pthread_mutex_t* mutex = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
-    if (unlikely(!mutex)) return NULL;
-
-    if (unlikely(pthread_mutex_init(mutex, NULL) != 0)) {
-        free(mutex);
-        return NULL;
-    }
-    return mutex;
+static int mutex_lock(mutex_t *mutex) {
+    if (!mutex_is_valid(mutex)) return EINVAL;
+    return pthread_mutex_lock(&mutex->native);
 }
 
-static inline void mutex_destroy(pthread_mutex_t **mutex) {
-    if (unlikely(!mutex || !*mutex)) return;
-    pthread_mutex_destroy(*mutex);
-    free(*mutex);
-    *mutex = NULL;
+static int mutex_unlock(mutex_t *mutex) {
+    if (!mutex_is_valid(mutex)) return EINVAL;
+    return pthread_mutex_unlock(&mutex->native);
 }
 
-static inline void mutex_reset(pthread_mutex_t **mutex) {
-    if (unlikely(!mutex || !*mutex)) return;
-
-    pthread_mutex_destroy(*mutex);
-
-    if (unlikely(pthread_mutex_init(*mutex, NULL) != 0)) {
-        free(*mutex);
-        *mutex = NULL;
-    }
+static pthread_mutex_t *mutex_native(mutex_t *mutex) {
+    return mutex_is_valid(mutex) ? &mutex->native : NULL;
 }
 
-DEFINE_RAII_TYPE(raii_mutex, pthread_mutex_t*, mutex_create, NULL, mutex_destroy, mutex_valid, mutex_reset)
-
-static inline pthread_mutex_t* scoped_lock_init(pthread_mutex_t *mutex) {
-    if (unlikely(!mutex)) return NULL;
-    pthread_mutex_lock(mutex);
-    return mutex;
+static bool mutex_init_succeeded(int error) {
+    return error == 0;
 }
 
-static inline void scoped_lock_destroy(pthread_mutex_t **mutex) {
-    if (unlikely(!mutex || !*mutex)) return;
-    pthread_mutex_unlock(*mutex);
-}
-
-static inline void scoped_lock_reset(pthread_mutex_t **mutex) {
-    if (unlikely(!mutex || !*mutex)) return;
-    pthread_mutex_unlock(*mutex);
-    pthread_mutex_lock(*mutex);
-}
-
-DEFINE_RAII_TYPE(scoped_lock, pthread_mutex_t*, scoped_lock_init, NULL, scoped_lock_destroy, cleanup_is_valid_ptr, scoped_lock_reset)
-
-#define __MUTEX_PTR_GENERIC(mtx) _Generic(&(mtx), \
-    pthread_mutex_t**: (mtx), \
-    pthread_mutex_t*:  &(mtx)  \
+DECLARE_SHARED_RAII_TYPES(
+    mutex,
+    mutex_t,
+    mutex_init,
+    mutex_destroy,
+    mutex_is_valid,
+    mutex_reset
 )
+DEFINE_RAII_INIT_VALIDATION(mutex, mutex_init_succeeded)
 
-#define WITH_LOCK(mtx) raii(scoped_lock) __lock_guard__##__LINE__ = create(scoped_lock, __MUTEX_PTR_GENERIC(mtx))
+typedef struct {
+    mutex_t *mutex;
+    bool owns_lock;
+} scoped_lock_t;
 
-#endif 
+static void scoped_lock_reset(scoped_lock_t *lock) {
+    if (lock == NULL) return;
+    lock->mutex = NULL;
+    lock->owns_lock = false;
+}
+
+static bool scoped_lock_is_valid(const scoped_lock_t *lock) {
+    return lock != NULL && lock->owns_lock && mutex_is_valid(lock->mutex);
+}
+
+static int scoped_lock_init(scoped_lock_t *lock, mutex_t *mutex) {
+    if (lock == NULL || !mutex_is_valid(mutex)) return EINVAL;
+    if (scoped_lock_is_valid(lock)) return EBUSY;
+
+    const int error = mutex_lock(mutex);
+    if (error == 0) {
+        lock->mutex = mutex;
+        lock->owns_lock = true;
+    }
+    return error;
+}
+
+static void scoped_lock_destroy(scoped_lock_t *lock) {
+    if (!scoped_lock_is_valid(lock)) return;
+
+    const int error = mutex_unlock(lock->mutex);
+    assert(error == 0);
+    (void)error;
+    scoped_lock_reset(lock);
+}
+
+static bool scoped_lock_init_succeeded(int error) {
+    return error == 0;
+}
+
+DECLARE_SHARED_RAII_TYPES(
+    scoped_lock,
+    scoped_lock_t,
+    scoped_lock_init,
+    scoped_lock_destroy,
+    scoped_lock_is_valid,
+    scoped_lock_reset
+)
+DEFINE_RAII_TRIVIAL_MOVE(
+    RAII_STACK_TYPE(scoped_lock),
+    scoped_lock_is_valid,
+    scoped_lock_reset
+)
+DEFINE_RAII_INIT_VALIDATION(scoped_lock, scoped_lock_init_succeeded)
+
+#endif //MUTEX_H

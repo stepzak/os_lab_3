@@ -37,3 +37,6 @@
 build-win/
 build/
 cmake-build-debug/
+build-release/
+build-profile/
+

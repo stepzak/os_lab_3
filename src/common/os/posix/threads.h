@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 #include <stdbool.h>
-#include "../../std.h"
+#include "common/std.h"
 
 typedef struct {
     pthread_t id;

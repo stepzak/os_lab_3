@@ -135,13 +135,13 @@
 #define create_heap(BaseName) create(RAII_HEAP_TYPE(BaseName))
 
 #define init(BaseName, var, ...) \
-    _Generic(&(var), \
-    RAII_STACK_TYPE(BaseName)*: \
-        (RAII_DETAIL_SYMBOL(BaseName, _get_init)())((RAII_STACK_TYPE(BaseName)*)&(var), ##__VA_ARGS__), \
-    \
-    RAII_HEAP_TYPE(BaseName)*:  \
-    (RAII_DETAIL_SYMBOL(BaseName, _get_init)())(*(RAII_HEAP_TYPE(BaseName)*)&(var), ##__VA_ARGS__) \
-)
+    (RAII_DETAIL_SYMBOL(BaseName, _get_init)())( \
+        _Generic(&(var), \
+            RAII_STACK_TYPE(BaseName)*: &(var), \
+            RAII_HEAP_TYPE(BaseName)*: (var) \
+        ), \
+        ##__VA_ARGS__ \
+    )
 
 #define drop(TypeName, var) RAII_DETAIL_SYMBOL(TypeName, _cleanup)(&(var))
 #define drop_stack(BaseName, var) drop(RAII_STACK_TYPE(BaseName), var)
